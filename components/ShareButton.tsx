@@ -98,15 +98,18 @@ export default function ShareButton({
             : "Copy link 🔗"}
       </button>
 
-      {/* On desktop with an audio file, offer a separate download button.
-          Lets the user attach the WAV manually in any web messaging app. */}
-      {!mobile && audioFile && (
+      {/* When there's an audio file, always offer a download/save button as a
+          secondary action. On desktop: lets you drag-and-drop into web chat
+          apps. On mobile: lets you manually attach in apps that don't appear
+          in the system share sheet (e.g. Google Voice doesn't register for
+          audio shares). */}
+      {audioFile && (
         <button
           type="button"
           onClick={downloadAudio}
           className="w-full rounded-2xl bg-white/10 hover:bg-white/20 py-3 text-white font-medium transition text-sm"
         >
-          Download .wav (drag into chat)
+          {mobile ? "Save .wav to Files" : "Download .wav (drag into chat)"}
         </button>
       )}
     </div>
