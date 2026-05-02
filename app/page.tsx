@@ -7,6 +7,7 @@ import SlugInput from "@/components/SlugInput";
 import CaptionInput from "@/components/CaptionInput";
 import ShareButton from "@/components/ShareButton";
 import { ItunesTrack, artworkUrl } from "@/lib/itunes";
+import { extractTrimmedAudio, safeFilename } from "@/lib/audio-export";
 
 type Step = "search" | "trim" | "share" | "done";
 
@@ -18,6 +19,7 @@ export default function Home() {
   const [slug, setSlug] = useState("");
   const [caption, setCaption] = useState("");
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
   const [takenSuggestion, setTakenSuggestion] = useState<string | undefined>();
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -37,29 +39,50 @@ export default function Home() {
     setCreating(true);
     setCreateError(null);
     setTakenSuggestion(undefined);
+    setAudioFile(null);
 
-    try {
-      const res = await fetch("/api/clips", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trackId: track.trackId,
-          startMs,
-          durationMs,
-          caption,
-          slug: slug || undefined,
-        }),
+    // Run audio extraction in parallel with the API call
+    const proxyUrl = `/api/audio-proxy?url=${encodeURIComponent(track.previewUrl)}`;
+    const audioPromise = extractTrimmedAudio(proxyUrl, startMs, durationMs)
+      .then((blob) => {
+        const baseName = caption || track.trackName;
+        const file = new File([blob], `${safeFilename(baseName)}.wav`, {
+          type: "audio/wav",
+        });
+        return file;
+      })
+      .catch((err) => {
+        // Audio extraction failed — we'll still have the URL share fallback
+        console.warn("Audio extraction failed:", err);
+        return null;
       });
 
-      const data = await res.json();
+    try {
+      const [apiRes, file] = await Promise.all([
+        fetch("/api/clips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            trackId: track.trackId,
+            startMs,
+            durationMs,
+            caption,
+            slug: slug || undefined,
+          }),
+        }),
+        audioPromise,
+      ]);
 
-      if (!res.ok) {
+      const data = await apiRes.json();
+
+      if (!apiRes.ok) {
         setCreateError(data.error ?? "Failed to create clip");
         return;
       }
 
       const url = `${window.location.origin}/c/${data.slug}`;
       setShareUrl(url);
+      setAudioFile(file);
 
       if (data.taken && slug) {
         setTakenSuggestion(data.slug);
@@ -77,6 +100,7 @@ export default function Home() {
     setStep("search");
     setTrack(null);
     setShareUrl(null);
+    setAudioFile(null);
     setSlug("");
     setCaption("");
     setTakenSuggestion(undefined);
@@ -196,8 +220,15 @@ export default function Home() {
 
             <ShareButton
               url={shareUrl}
+              audioFile={audioFile}
               title={`${caption || track.trackName} — musicgif`}
             />
+
+            {audioFile && (
+              <p className="text-white/40 text-xs">
+                Will share as audio file — plays inline in any messaging app
+              </p>
+            )}
 
             <button
               type="button"
