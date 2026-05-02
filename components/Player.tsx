@@ -61,17 +61,32 @@ export default function Player({
 
         bufRef.current = audioBuf;
 
-        // Try autoplay with sound — works on Android Chrome from link navigation
-        await ctx.resume();
-        if (ctx.state === "running") {
+        // Try autoplay with sound. Important: ctx.resume() can hang
+        // INDEFINITELY on Chrome when there's been no user gesture (the
+        // promise queues until a gesture arrives). Race against a timeout
+        // so the prefetch chain can never deadlock here.
+        try {
+          await Promise.race([
+            ctx.resume(),
+            new Promise((_, rej) =>
+              setTimeout(() => rej(new Error("resume-timeout")), 600)
+            ),
+          ]);
+        } catch {
+          // Timed out or rejected — context stays suspended
+        }
+
+        if (ctx.state === "running" && !cancelled) {
           const started = playBuffer(ctx, audioBuf);
-          if (started && !cancelled) {
+          if (started) {
             setPlayerState("playing");
             return;
           }
         }
 
-        // Autoplay with sound blocked — try muted autoplay (always works on iOS)
+        if (cancelled) return;
+
+        // Autoplay-with-sound blocked — try muted autoplay
         const muted = new Audio(audioBlobUrl);
         muted.muted = true;
         muted.loop = true;
@@ -79,10 +94,15 @@ export default function Player({
         mutedAudioRef.current = muted;
 
         try {
-          await muted.play();
+          await Promise.race([
+            muted.play(),
+            new Promise((_, rej) =>
+              setTimeout(() => rej(new Error("muted-play-timeout")), 2000)
+            ),
+          ]);
           if (!cancelled) setPlayerState("playing-muted");
         } catch {
-          // Even muted autoplay blocked (unusual) — show tap-to-play button
+          // Even muted autoplay blocked or load hung — show tap-to-play button
           if (!cancelled) setPlayerState("ready");
         }
       } catch {
