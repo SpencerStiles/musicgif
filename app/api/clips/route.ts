@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/ratelimit";
 import { createClip, getClip } from "@/lib/kv";
-import { storeAudio } from "@/lib/blob";
-import { lookupTrack } from "@/lib/itunes";
+import { makeAudioUrl } from "@/lib/blob";
+import { lookupTrack, artworkUrl } from "@/lib/itunes";
 import { validateSlug, generateFallbackSlug } from "@/lib/slug";
 import { claimSlug } from "@/lib/slug-server";
-import { artworkUrl } from "@/lib/itunes";
 
 export async function POST(req: NextRequest) {
-  // Rate limit by IP
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "anonymous";
   const allowed = await checkRateLimit(ip);
   if (!allowed) {
@@ -45,7 +43,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Validate preferred slug if provided
   if (preferredSlug) {
     const slugError = validateSlug(preferredSlug);
     if (slugError) {
@@ -53,7 +50,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Fresh iTunes lookup to get current previewUrl (handles URL rotation)
+  // Fresh iTunes lookup for current previewUrl (handles URL rotation)
   const track = await lookupTrack(trackId);
   if (!track) {
     return NextResponse.json(
@@ -62,18 +59,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch audio once and write to Vercel Blob (removes per-play function compute)
-  let audioBlobUrl: string;
-  try {
-    audioBlobUrl = await storeAudio(trackId, track.previewUrl);
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to process audio. Try again." },
-      { status: 502 }
-    );
-  }
+  // Build audio URL — served via audio-proxy (CORS-friendly for Web Audio API)
+  const audioBlobUrl = makeAudioUrl(track.previewUrl);
 
-  // Claim slug atomically
   const fallback = generateFallbackSlug();
   const { slug, taken } = await claimSlug(preferredSlug, fallback);
 
@@ -92,7 +80,6 @@ export async function POST(req: NextRequest) {
 
   const saved = await createClip(clip);
   if (!saved) {
-    // Race: slug was claimed between claimSlug check and createClip
     const retrySlug = `${fallback}-2`;
     clip.slug = retrySlug;
     await createClip(clip);

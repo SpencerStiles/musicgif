@@ -1,21 +1,6 @@
-import { put } from "@vercel/blob";
+// Audio is served via /api/audio-proxy for both sender trim UI and recipient playback.
+// This avoids Vercel Blob for now — revisit when traffic warrants it.
 
-export async function storeAudio(
-  trackId: number,
-  previewUrl: string
-): Promise<string> {
-  const res = await fetch(previewUrl);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch audio from Apple CDN: ${res.status}`);
-  }
-
-  const blob = await res.blob();
-  const { url } = await put(`audio/${trackId}.m4a`, blob, {
-    access: "public",
-    contentType: "audio/mp4",
-    addRandomSuffix: false,
-    cacheControlMaxAge: 60 * 60 * 24 * 365,
-  });
-
-  return url;
+export function makeAudioUrl(previewUrl: string): string {
+  return `/api/audio-proxy?url=${encodeURIComponent(previewUrl)}`;
 }
