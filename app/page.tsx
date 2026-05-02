@@ -1,65 +1,214 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useCallback } from "react";
+import SearchBox from "@/components/SearchBox";
+import Trimmer from "@/components/Trimmer";
+import SlugInput from "@/components/SlugInput";
+import CaptionInput from "@/components/CaptionInput";
+import ShareButton from "@/components/ShareButton";
+import { ItunesTrack, artworkUrl } from "@/lib/itunes";
+
+type Step = "search" | "trim" | "share" | "done";
 
 export default function Home() {
+  const [step, setStep] = useState<Step>("search");
+  const [track, setTrack] = useState<ItunesTrack | null>(null);
+  const [startMs, setStartMs] = useState(0);
+  const [durationMs, setDurationMs] = useState(5000);
+  const [slug, setSlug] = useState("");
+  const [caption, setCaption] = useState("");
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [takenSuggestion, setTakenSuggestion] = useState<string | undefined>();
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const handleSelectTrack = (t: ItunesTrack) => {
+    setTrack(t);
+    setStep("trim");
+  };
+
+  const handleTrimChange = useCallback((start: number, duration: number) => {
+    setStartMs(start);
+    setDurationMs(duration);
+  }, []);
+
+  const handleCreate = async () => {
+    if (!track) return;
+    setCreating(true);
+    setCreateError(null);
+    setTakenSuggestion(undefined);
+
+    try {
+      const res = await fetch("/api/clips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trackId: track.trackId,
+          startMs,
+          durationMs,
+          caption,
+          slug: slug || undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setCreateError(data.error ?? "Failed to create clip");
+        return;
+      }
+
+      const url = `${window.location.origin}/c/${data.slug}`;
+      setShareUrl(url);
+
+      if (data.taken && slug) {
+        setTakenSuggestion(data.slug);
+      }
+
+      setStep("done");
+    } catch {
+      setCreateError("Connection error. Try again.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const reset = () => {
+    setStep("search");
+    setTrack(null);
+    setShareUrl(null);
+    setSlug("");
+    setCaption("");
+    setTakenSuggestion(undefined);
+    setCreateError(null);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-black flex flex-col items-center justify-start px-4 py-10">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold tracking-tight">🎵 musicgif</h1>
+          <p className="text-white/50 text-sm mt-1">Send a music moment</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {step === "search" && (
+          <SearchBox onSelect={handleSelectTrack} />
+        )}
+
+        {step === "trim" && track && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={artworkUrl(track.artworkUrl100, 60)}
+                alt={track.trackName}
+                width={48}
+                height={48}
+                className="rounded-xl"
+              />
+              <div className="min-w-0">
+                <p className="font-semibold truncate">{track.trackName}</p>
+                <p className="text-white/60 text-sm truncate">{track.artistName}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setTrack(null); setStep("search"); }}
+                className="ml-auto text-white/40 hover:text-white/70 text-sm shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            <Trimmer
+              previewUrl={track.previewUrl}
+              onTrimChange={handleTrimChange}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+            <button
+              type="button"
+              onClick={() => setStep("share")}
+              className="w-full rounded-2xl bg-white/10 hover:bg-white/20 py-3 text-white font-medium transition"
+            >
+              Next: add details →
+            </button>
+          </div>
+        )}
+
+        {step === "share" && track && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/10">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={artworkUrl(track.artworkUrl100, 60)}
+                alt={track.trackName}
+                width={48}
+                height={48}
+                className="rounded-lg"
+              />
+              <div className="min-w-0">
+                <p className="font-medium truncate">{track.trackName}</p>
+                <p className="text-white/60 text-sm">
+                  {Math.round(startMs / 1000)}s – {Math.round((startMs + durationMs) / 1000)}s
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStep("trim")}
+                className="ml-auto text-white/40 hover:text-white/70 text-sm shrink-0"
+              >
+                Edit
+              </button>
+            </div>
+
+            <CaptionInput value={caption} onChange={setCaption} />
+            <SlugInput
+              value={slug}
+              onChange={setSlug}
+              takenSuggestion={takenSuggestion}
+            />
+
+            {createError && (
+              <p className="text-red-400 text-sm text-center">{createError}</p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={creating}
+              className="w-full rounded-2xl bg-white text-black font-semibold py-4 text-lg active:scale-95 transition disabled:opacity-40"
+            >
+              {creating ? "Preparing clip…" : "Create & Share 🎵"}
+            </button>
+          </div>
+        )}
+
+        {step === "done" && shareUrl && track && (
+          <div className="space-y-4 text-center">
+            <div className="text-5xl">🎉</div>
+            <p className="text-xl font-semibold">Your clip is ready!</p>
+            <p className="text-white/50 text-sm break-all">{shareUrl}</p>
+
+            {takenSuggestion && (
+              <p className="text-amber-400 text-xs">
+                Slug was taken — using <strong>{shareUrl.split("/c/")[1]}</strong> instead
+              </p>
+            )}
+
+            <ShareButton
+              url={shareUrl}
+              title={`${caption || track.trackName} — musicgif`}
+            />
+
+            <button
+              type="button"
+              onClick={reset}
+              className="text-white/40 hover:text-white/70 text-sm transition"
+            >
+              Make another clip
+            </button>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
