@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clipCreateRatelimit } from "@/lib/ratelimit";
+import { checkRateLimit } from "@/lib/ratelimit";
 import { createClip, getClip } from "@/lib/kv";
 import { storeAudio } from "@/lib/blob";
 import { lookupTrack } from "@/lib/itunes";
-import { validateSlug, claimSlug, generateFallbackSlug } from "@/lib/slug";
+import { validateSlug, generateFallbackSlug } from "@/lib/slug";
+import { claimSlug } from "@/lib/slug-server";
 import { artworkUrl } from "@/lib/itunes";
 
 export async function POST(req: NextRequest) {
   // Rate limit by IP
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0] ?? "anonymous";
-  const { success } = await clipCreateRatelimit.limit(ip);
-  if (!success) {
+  const allowed = await checkRateLimit(ip);
+  if (!allowed) {
     return NextResponse.json(
       { error: "Too many clips created. Try again in a minute." },
       { status: 429 }

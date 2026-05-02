@@ -1,14 +1,12 @@
-import { slugExists } from "./kv";
+// Client-safe: no Node.js dependencies
 
 const SLUG_REGEX = /^[a-z0-9-]{3,30}$/;
 
-// Reserved slugs that shouldn't be used (routes, brands, etc.)
 const RESERVED = new Set([
   "api", "c", "clip", "admin", "health", "favicon", "robots",
   "sitemap", "apple", "spotify", "itunes", "google", "meta",
 ]);
 
-// Basic profanity blocklist (expand as needed)
 const BLOCKED = new Set([
   "fuck", "shit", "ass", "bitch", "damn", "crap",
 ]);
@@ -31,29 +29,4 @@ export function validateSlug(slug: string): string | null {
 
 export function generateFallbackSlug(): string {
   return Math.random().toString(36).slice(2, 8);
-}
-
-/** Atomically claim a slug, retrying with suffixes on collision. */
-export async function claimSlug(
-  preferred: string | undefined,
-  fallback: string
-): Promise<{ slug: string; taken: boolean }> {
-  const base = preferred?.toLowerCase().trim() || fallback;
-
-  // Try the exact slug first
-  const exactAvailable = !(await slugExists(base));
-  if (exactAvailable) {
-    return { slug: base, taken: false };
-  }
-
-  // Try up to 5 suffixed variants
-  for (let i = 2; i <= 6; i++) {
-    const candidate = `${base}-${i}`;
-    if (!(await slugExists(candidate))) {
-      return { slug: candidate, taken: true };
-    }
-  }
-
-  // Absolute fallback: random hash
-  return { slug: fallback, taken: true };
 }

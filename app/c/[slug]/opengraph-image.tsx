@@ -1,7 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getClip } from "@/lib/kv";
 
-export const runtime = "edge";
 export const alt = "musicgif clip";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

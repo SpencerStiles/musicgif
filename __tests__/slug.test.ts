@@ -8,7 +8,7 @@ vi.mock("@/lib/kv", () => ({
   createClip: vi.fn(),
 }));
 
-import { claimSlug } from "@/lib/slug";
+import { claimSlug } from "@/lib/slug-server";
 import { slugExists } from "@/lib/kv";
 
 describe("validateSlug", () => {
