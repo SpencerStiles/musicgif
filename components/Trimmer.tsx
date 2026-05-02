@@ -7,17 +7,32 @@ interface TrimmerProps {
   onTrimChange: (startMs: number, durationMs: number) => void;
 }
 
-// We load wavesurfer dynamically since it's browser-only
+type WS = {
+  play: (start?: number, end?: number) => Promise<void>;
+  pause: () => void;
+  setTime: (t: number) => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  isPlaying: () => boolean;
+  destroy: () => void;
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+};
+
 export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<unknown>(null);
+  const wsRef = useRef<WS | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [startPct, setStartPct] = useState(0.2);
   const [endPct, setEndPct] = useState(0.4);
 
-  // Load wavesurfer.js dynamically (browser-only)
+  // Refs that the audioprocess callback can read without being recreated
+  const startPctRef = useRef(startPct);
+  const endPctRef = useRef(endPct);
+  useEffect(() => { startPctRef.current = startPct; }, [startPct]);
+  useEffect(() => { endPctRef.current = endPct; }, [endPct]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -37,16 +52,15 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
         barRadius: 2,
         height: 64,
         url: proxyUrl,
-      });
+      }) as unknown as WS;
 
       ws.on("ready", () => {
         if (!mounted) return;
         setLoading(false);
-        // Emit initial trim (20% to 40% of 30s = 6s to 12s)
         const duration = ws.getDuration() * 1000;
         onTrimChange(
-          Math.round(duration * startPct),
-          Math.round(duration * (endPct - startPct))
+          Math.round(duration * startPctRef.current),
+          Math.round(duration * (endPctRef.current - startPctRef.current))
         );
       });
 
@@ -60,51 +74,55 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
       ws.on("pause", () => mounted && setPlaying(false));
       ws.on("finish", () => mounted && setPlaying(false));
 
+      // Loop preview within the trim window: when we cross the end,
+      // seek back to the current start. This stays accurate even if the
+      // user moves the trim handles while previewing.
+      ws.on("audioprocess", () => {
+        const duration = ws.getDuration();
+        if (!duration) return;
+        const endSec = endPctRef.current * duration;
+        if (ws.getCurrentTime() >= endSec) {
+          ws.setTime(startPctRef.current * duration);
+        }
+      });
+
       wsRef.current = ws;
     });
 
     return () => {
       mounted = false;
-      if (wsRef.current) {
-        (wsRef.current as { destroy: () => void }).destroy();
-        wsRef.current = null;
-      }
+      wsRef.current?.destroy();
+      wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewUrl]);
 
-  // Update trim when handles change
+  // Push trim changes upstream
   useEffect(() => {
-    const ws = wsRef.current as { getDuration?: () => number } | null;
-    if (!ws?.getDuration) return;
+    const ws = wsRef.current;
+    if (!ws) return;
     const duration = ws.getDuration() * 1000;
+    if (!duration) return;
     onTrimChange(
       Math.round(duration * startPct),
       Math.round(duration * (endPct - startPct))
     );
   }, [startPct, endPct, onTrimChange]);
 
-  const handlePlay = () => {
-    const ws = wsRef.current as {
-      play?: () => void;
-      pause?: () => void;
-      setTime?: (t: number) => void;
-      getDuration?: () => number;
-    } | null;
+  const handlePlay = async () => {
+    const ws = wsRef.current;
     if (!ws) return;
     if (playing) {
-      ws.pause?.();
-    } else {
-      const duration = ws.getDuration?.() ?? 30;
-      ws.setTime?.(duration * startPct);
-      ws.play?.();
+      ws.pause();
+      return;
     }
+    const duration = ws.getDuration();
+    ws.setTime(duration * startPct);
+    await ws.play();
   };
 
   if (error) {
-    return (
-      <p className="text-red-400 text-sm text-center py-4">{error}</p>
-    );
+    return <p className="text-red-400 text-sm text-center py-4">{error}</p>;
   }
 
   return (
@@ -122,7 +140,6 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
 
       {!loading && (
         <>
-          {/* Trim range sliders */}
           <div className="space-y-1">
             <div className="flex justify-between text-xs text-white/50">
               <span>Start</span>
