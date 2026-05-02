@@ -18,16 +18,23 @@ type WS = {
   on: (event: string, cb: (...args: unknown[]) => void) => void;
 };
 
+// Format seconds to "M:SS"
+function fmt(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WS | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(30); // seconds, populated from wavesurfer
   const [startPct, setStartPct] = useState(0.2);
   const [endPct, setEndPct] = useState(0.4);
 
-  // Refs that the audioprocess callback can read without being recreated
   const startPctRef = useRef(startPct);
   const endPctRef = useRef(endPct);
   useEffect(() => { startPctRef.current = startPct; }, [startPct]);
@@ -46,21 +53,24 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
         container: containerRef.current,
         waveColor: "rgba(255,255,255,0.3)",
         progressColor: "rgba(255,255,255,0.8)",
-        cursorColor: "transparent",
+        cursorColor: "rgba(255,255,255,0.6)",
+        cursorWidth: 1,
         barWidth: 2,
         barGap: 1,
         barRadius: 2,
-        height: 64,
+        height: 80,
         url: proxyUrl,
       }) as unknown as WS;
 
       ws.on("ready", () => {
         if (!mounted) return;
         setLoading(false);
-        const duration = ws.getDuration() * 1000;
+        const dur = ws.getDuration();
+        setDuration(dur);
+        const durMs = dur * 1000;
         onTrimChange(
-          Math.round(duration * startPctRef.current),
-          Math.round(duration * (endPctRef.current - startPctRef.current))
+          Math.round(durMs * startPctRef.current),
+          Math.round(durMs * (endPctRef.current - startPctRef.current))
         );
       });
 
@@ -74,15 +84,12 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
       ws.on("pause", () => mounted && setPlaying(false));
       ws.on("finish", () => mounted && setPlaying(false));
 
-      // Loop preview within the trim window: when we cross the end,
-      // seek back to the current start. This stays accurate even if the
-      // user moves the trim handles while previewing.
       ws.on("audioprocess", () => {
-        const duration = ws.getDuration();
-        if (!duration) return;
-        const endSec = endPctRef.current * duration;
+        const dur = ws.getDuration();
+        if (!dur) return;
+        const endSec = endPctRef.current * dur;
         if (ws.getCurrentTime() >= endSec) {
-          ws.setTime(startPctRef.current * duration);
+          ws.setTime(startPctRef.current * dur);
         }
       });
 
@@ -97,17 +104,15 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewUrl]);
 
-  // Push trim changes upstream
+  // Push trim changes upstream whenever bounds change
   useEffect(() => {
-    const ws = wsRef.current;
-    if (!ws) return;
-    const duration = ws.getDuration() * 1000;
-    if (!duration) return;
+    if (loading) return;
+    const durMs = duration * 1000;
     onTrimChange(
-      Math.round(duration * startPct),
-      Math.round(duration * (endPct - startPct))
+      Math.round(durMs * startPct),
+      Math.round(durMs * (endPct - startPct))
     );
-  }, [startPct, endPct, onTrimChange]);
+  }, [startPct, endPct, duration, loading, onTrimChange]);
 
   const handlePlay = async () => {
     const ws = wsRef.current;
@@ -116,69 +121,132 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
       ws.pause();
       return;
     }
-    const duration = ws.getDuration();
     ws.setTime(duration * startPct);
     await ws.play();
   };
+
+  // Min trim duration: 1 second; min/max bounds: leave room for the other handle
+  const minGapPct = duration > 0 ? Math.min(0.5, 1 / duration) : 0.05;
+
+  const startSec = duration * startPct;
+  const endSec = duration * endPct;
+  const clipSec = endSec - startSec;
 
   if (error) {
     return <p className="text-red-400 text-sm text-center py-4">{error}</p>;
   }
 
   return (
-    <div className="w-full space-y-3">
+    <div className="w-full space-y-4">
       {loading && (
-        <div className="flex justify-center py-6">
+        <div className="flex justify-center py-12">
           <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
-      <div
-        ref={containerRef}
-        className={loading ? "opacity-0 h-0 overflow-hidden" : "opacity-100"}
-      />
+      <div className={loading ? "opacity-0 h-0 overflow-hidden" : ""}>
+        {/* Waveform with overlay showing trim region */}
+        <div className="relative">
+          <div ref={containerRef} />
+
+          {/* Highlighted trim region overlay */}
+          {!loading && (
+            <>
+              {/* Dim outside-trim areas */}
+              <div
+                className="absolute top-0 bottom-0 left-0 bg-black/50 pointer-events-none rounded-l"
+                style={{ width: `${startPct * 100}%` }}
+              />
+              <div
+                className="absolute top-0 bottom-0 right-0 bg-black/50 pointer-events-none rounded-r"
+                style={{ width: `${(1 - endPct) * 100}%` }}
+              />
+
+              {/* Trim window borders */}
+              <div
+                className="absolute top-0 bottom-0 border-l-2 border-r-2 border-white/80 pointer-events-none"
+                style={{
+                  left: `${startPct * 100}%`,
+                  width: `${(endPct - startPct) * 100}%`,
+                }}
+              />
+
+              {/* Start/end timestamp labels above the trim handles */}
+              <div
+                className="absolute -top-5 text-xs font-medium text-white pointer-events-none whitespace-nowrap"
+                style={{ left: `${startPct * 100}%`, transform: "translateX(-50%)" }}
+              >
+                {fmt(startSec)}
+              </div>
+              <div
+                className="absolute -top-5 text-xs font-medium text-white pointer-events-none whitespace-nowrap"
+                style={{ left: `${endPct * 100}%`, transform: "translateX(-50%)" }}
+              >
+                {fmt(endSec)}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Timeline ruler underneath the waveform */}
+        {!loading && (
+          <div className="relative h-3 mt-1">
+            <div className="absolute left-0 text-[10px] text-white/40">0:00</div>
+            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-white/40">
+              {fmt(duration / 2)}
+            </div>
+            <div className="absolute right-0 text-[10px] text-white/40">
+              {fmt(duration)}
+            </div>
+          </div>
+        )}
+      </div>
 
       {!loading && (
         <>
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-white/50">
-              <span>Start</span>
-              <span>{Math.round(startPct * 30)}s</span>
+          {/* Sliders for fine adjustment */}
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-white/60">
+                <span>Start</span>
+                <span className="font-mono text-white">{fmt(startSec)}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1 - minGapPct}
+                step={0.005}
+                value={startPct}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (v < endPct - minGapPct) setStartPct(v);
+                }}
+                className="w-full accent-white"
+              />
             </div>
-            <input
-              type="range"
-              min={0}
-              max={0.9}
-              step={0.01}
-              value={startPct}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                if (v < endPct - 0.03) setStartPct(v);
-              }}
-              className="w-full accent-white"
-            />
+
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-white/60">
+                <span>End</span>
+                <span className="font-mono text-white">{fmt(endSec)}</span>
+              </div>
+              <input
+                type="range"
+                min={minGapPct}
+                max={1}
+                step={0.005}
+                value={endPct}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (v > startPct + minGapPct) setEndPct(v);
+                }}
+                className="w-full accent-white"
+              />
+            </div>
           </div>
 
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs text-white/50">
-              <span>End</span>
-              <span>{Math.round(endPct * 30)}s</span>
-            </div>
-            <input
-              type="range"
-              min={0.1}
-              max={1}
-              step={0.01}
-              value={endPct}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                if (v > startPct + 0.03) setEndPct(v);
-              }}
-              className="w-full accent-white"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
+          {/* Preview button + clip duration */}
+          <div className="flex items-center justify-between pt-1">
             <button
               type="button"
               onClick={handlePlay}
@@ -186,8 +254,8 @@ export default function Trimmer({ previewUrl, onTrimChange }: TrimmerProps) {
             >
               {playing ? "⏸ Pause" : "▶ Preview clip"}
             </button>
-            <span className="text-white/50 text-sm">
-              {Math.round((endPct - startPct) * 30)}s clip
+            <span className="text-white font-mono text-sm">
+              {clipSec.toFixed(1)}s clip
             </span>
           </div>
         </>
