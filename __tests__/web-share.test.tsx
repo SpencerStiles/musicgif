@@ -23,7 +23,14 @@ describe("ShareButton", () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
-  it("calls navigator.share when available", async () => {
+  it("calls navigator.share with url on mobile", async () => {
+    // Spoof a mobile user agent so the component takes the mobile path
+    Object.defineProperty(navigator, "userAgent", {
+      value: "Mozilla/5.0 (iPhone)",
+      writable: true,
+      configurable: true,
+    });
+
     const mockShare = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "share", {
       value: mockShare,
@@ -42,7 +49,8 @@ describe("ShareButton", () => {
     });
   });
 
-  it("falls back to clipboard when navigator.share is not available", async () => {
+  it("falls back to clipboard on desktop (default path)", async () => {
+    // Default jsdom userAgent is desktop-like — goes straight to clipboard
     render(<ShareButton url="https://example.com/c/test" title="Test Song" />);
     fireEvent.click(screen.getByRole("button"));
 

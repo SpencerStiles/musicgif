@@ -224,11 +224,10 @@ export default function Home() {
               title={`${caption || track.trackName} — musicgif`}
             />
 
-            {audioFile && (
-              <p className="text-white/40 text-xs">
-                Will share as audio file — plays inline in any messaging app
-              </p>
-            )}
+            <p className="text-white/40 text-xs">
+              On mobile: shares as audio file (plays inline in any messaging app).
+              On desktop: copies the link.
+            </p>
 
             <button
               type="button"

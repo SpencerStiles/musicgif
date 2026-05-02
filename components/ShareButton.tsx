@@ -5,9 +5,14 @@ import { useState } from "react";
 interface ShareButtonProps {
   url: string;
   title: string;
-  audioFile?: File | null; // when present, share as inline audio attachment
+  audioFile?: File | null;
   disabled?: boolean;
   onShare?: () => void;
+}
+
+function isMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 export default function ShareButton({
@@ -19,9 +24,12 @@ export default function ShareButton({
 }: ShareButtonProps) {
   const [copied, setCopied] = useState(false);
 
+  const mobile = isMobile();
+
   const handleShare = async () => {
-    // Prefer file share — recipient sees an inline audio player in any messaging app
+    // MOBILE: prefer file-share — recipient gets inline audio player in any messaging app
     if (
+      mobile &&
       audioFile &&
       typeof navigator !== "undefined" &&
       navigator.canShare &&
@@ -32,13 +40,13 @@ export default function ShareButton({
         onShare?.();
         return;
       } catch (err) {
-        // User cancelled, or share failed — fall through to URL share
         if ((err as Error)?.name === "AbortError") return;
+        // Fall through to URL/clipboard
       }
     }
 
-    // URL share — works everywhere but recipient has to tap link → open browser
-    if (typeof navigator !== "undefined" && navigator.share) {
+    // MOBILE without file share, or DESKTOP: try Web Share API with URL
+    if (mobile && typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ url, title });
         onShare?.();
@@ -48,7 +56,7 @@ export default function ShareButton({
       }
     }
 
-    // Final fallback: clipboard
+    // Final fallback (desktop primary path): clipboard
     await copyToClipboard();
   };
 
@@ -63,18 +71,44 @@ export default function ShareButton({
     }
   };
 
+  const downloadAudio = () => {
+    if (!audioFile) return;
+    const blobUrl = URL.createObjectURL(audioFile);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = audioFile.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  };
+
   return (
-    <button
-      type="button"
-      onClick={handleShare}
-      disabled={disabled}
-      className="w-full rounded-2xl bg-white text-black font-semibold py-4 text-lg active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      {copied
-        ? "Link copied ✓"
-        : audioFile
-          ? "Share clip 🎵"
-          : "Share link 🔗"}
-    </button>
+    <div className="space-y-2 w-full">
+      <button
+        type="button"
+        onClick={handleShare}
+        disabled={disabled}
+        className="w-full rounded-2xl bg-white text-black font-semibold py-4 text-lg active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {copied
+          ? "Link copied ✓"
+          : mobile && audioFile
+            ? "Share clip 🎵"
+            : "Copy link 🔗"}
+      </button>
+
+      {/* On desktop with an audio file, offer a separate download button.
+          Lets the user attach the WAV manually in any web messaging app. */}
+      {!mobile && audioFile && (
+        <button
+          type="button"
+          onClick={downloadAudio}
+          className="w-full rounded-2xl bg-white/10 hover:bg-white/20 py-3 text-white font-medium transition text-sm"
+        >
+          Download .wav (drag into chat)
+        </button>
+      )}
+    </div>
   );
 }

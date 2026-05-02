@@ -14,6 +14,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const title = clip.caption || clip.title;
   const ogImageUrl = `/c/${slug}/opengraph-image`;
+  const embedUrl = `/c/${slug}/embed`;
+  const audioUrl = clip.audioBlobUrl;
 
   return {
     title: `${title} — musicgif`,
@@ -22,11 +24,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title,
       description: `${clip.title} by ${clip.artist}`,
       images: [{ url: ogImageUrl, width: 1200, height: 630 }],
+      audio: [{ url: audioUrl, type: "audio/mp4" }],
     },
     twitter: {
-      card: "summary_large_image",
+      // "player" card → Discord, Twitter/X, and other Twitter-card-aware
+      // platforms render an iframe with our /embed page (inline audio player)
+      card: "player",
       title,
+      description: `${clip.title} by ${clip.artist}`,
       images: [ogImageUrl],
+      players: [
+        {
+          playerUrl: embedUrl,
+          streamUrl: audioUrl,
+          width: 480,
+          height: 320,
+        },
+      ],
     },
     robots: { index: false, follow: false },
   };
