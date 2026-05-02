@@ -47,7 +47,10 @@ export default function Player({
         const ctx = new AudioCtx();
         ctxRef.current = ctx;
 
-        const res = await fetch(audioBlobUrl);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+        const res = await fetch(audioBlobUrl, { signal: controller.signal });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
 
         const arrayBuf = await res.arrayBuffer();

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// CORS-friendly audio proxy — used only by sender's wavesurfer.js trim UI.
-// Recipient page reads directly from Vercel Blob CDN, not this route.
+// CORS-friendly audio proxy for sender's wavesurfer.js trim UI AND recipient playback.
+// We buffer the upstream response into an ArrayBuffer rather than streaming via
+// `upstream.body`, because returning a ReadableStream from a serverless function
+// on Vercel is unreliable (response can hang or arrive empty).
+// See: https://github.com/vercel/next.js/issues/38736
+//      https://github.com/vercel/next.js/discussions/50614
 
 export async function GET(req: NextRequest) {
   const previewUrl = req.nextUrl.searchParams.get("url");
@@ -10,22 +14,46 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing url" }, { status: 400 });
   }
 
-  // Only proxy Apple CDN preview URLs
-  if (!previewUrl.startsWith("https://audio-ssl.itunes.apple.com/") &&
-      !previewUrl.startsWith("https://a1.mzstatic.com/")) {
+  // Whitelist Apple CDN hostnames
+  if (
+    !previewUrl.startsWith("https://audio-ssl.itunes.apple.com/") &&
+    !previewUrl.startsWith("https://a1.mzstatic.com/")
+  ) {
     return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
   }
 
   const rangeHeader = req.headers.get("range");
 
-  const upstream = await fetch(previewUrl, {
-    headers: rangeHeader ? { Range: rangeHeader } : {},
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(previewUrl, {
+      cache: "no-store",
+      headers: rangeHeader ? { Range: rangeHeader } : {},
+    });
+  } catch (err) {
+    console.error("Audio proxy upstream fetch failed:", err);
+    return NextResponse.json(
+      { error: "Upstream fetch failed" },
+      { status: 502 }
+    );
+  }
 
   if (!upstream.ok && upstream.status !== 206) {
     return NextResponse.json(
-      { error: "Upstream fetch failed" },
+      { error: "Upstream returned " + upstream.status },
       { status: upstream.status }
+    );
+  }
+
+  // Buffer the entire response into memory rather than streaming.
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await upstream.arrayBuffer();
+  } catch (err) {
+    console.error("Audio proxy arrayBuffer failed:", err);
+    return NextResponse.json(
+      { error: "Upstream read failed" },
+      { status: 502 }
     );
   }
 
@@ -34,20 +62,15 @@ export async function GET(req: NextRequest) {
   headers.set("Access-Control-Allow-Methods", "GET, HEAD");
   headers.set("Access-Control-Allow-Headers", "Range");
   headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  headers.set("Content-Length", String(buffer.byteLength));
 
-  const contentType = upstream.headers.get("content-type");
-  if (contentType) headers.set("Content-Type", contentType);
-
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) headers.set("Content-Length", contentLength);
+  const contentType = upstream.headers.get("content-type") ?? "audio/mp4";
+  headers.set("Content-Type", contentType);
 
   const contentRange = upstream.headers.get("content-range");
   if (contentRange) headers.set("Content-Range", contentRange);
 
-  const acceptRanges = upstream.headers.get("accept-ranges");
-  if (acceptRanges) headers.set("Accept-Ranges", acceptRanges);
-
-  return new NextResponse(upstream.body, {
+  return new NextResponse(buffer, {
     status: upstream.status,
     headers,
   });
