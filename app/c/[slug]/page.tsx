@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Metadata } from "next";
+import { headers } from "next/headers";
 import { getClip } from "@/lib/kv";
 import Player from "@/components/Player";
 
@@ -12,23 +13,37 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const clip = await getClip(slug);
   if (!clip) return {};
 
+  // Build absolute URLs from the request host. Required because Discord,
+  // Twitter/X, etc. fetch our metadata server-side and can't resolve
+  // relative paths in og:* / twitter:* tags.
+  const headersList = await headers();
+  const host =
+    headersList.get("x-forwarded-host") ??
+    headersList.get("host") ??
+    "gif.spencerstiles.com";
+  const protocol = host.includes("localhost") ? "http" : "https";
+  const base = `${protocol}://${host}`;
+
   const title = clip.caption || clip.title;
-  const ogImageUrl = `/c/${slug}/opengraph-image`;
-  const embedUrl = `/c/${slug}/embed`;
-  const audioUrl = clip.audioBlobUrl;
+  const ogImageUrl = `${base}/c/${slug}/opengraph-image`;
+  const embedUrl = `${base}/c/${slug}/embed`;
+  // audioBlobUrl is stored as a relative path; make it absolute too
+  const audioUrl = clip.audioBlobUrl.startsWith("http")
+    ? clip.audioBlobUrl
+    : `${base}${clip.audioBlobUrl}`;
 
   return {
+    metadataBase: new URL(base),
     title: `${title} — musicgif`,
     description: `${clip.title} by ${clip.artist}`,
     openGraph: {
       title,
       description: `${clip.title} by ${clip.artist}`,
+      url: `${base}/c/${slug}`,
       images: [{ url: ogImageUrl, width: 1200, height: 630 }],
       audio: [{ url: audioUrl, type: "audio/mp4" }],
     },
     twitter: {
-      // "player" card → Discord, Twitter/X, and other Twitter-card-aware
-      // platforms render an iframe with our /embed page (inline audio player)
       card: "player",
       title,
       description: `${clip.title} by ${clip.artist}`,
