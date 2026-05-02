@@ -26,11 +26,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const title = clip.caption || clip.title;
   const ogImageUrl = `${base}/c/${slug}/opengraph-image`;
-  const embedUrl = `${base}/c/${slug}/embed`;
-  // audioBlobUrl is stored as a relative path; make it absolute too
-  const audioUrl = clip.audioBlobUrl.startsWith("http")
-    ? clip.audioBlobUrl
-    : `${base}${clip.audioBlobUrl}`;
 
   return {
     metadataBase: new URL(base),
@@ -41,21 +36,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: `${clip.title} by ${clip.artist}`,
       url: `${base}/c/${slug}`,
       images: [{ url: ogImageUrl, width: 1200, height: 630 }],
-      audio: [{ url: audioUrl, type: "audio/mp4" }],
     },
     twitter: {
-      card: "player",
+      card: "summary_large_image",
       title,
       description: `${clip.title} by ${clip.artist}`,
       images: [ogImageUrl],
-      players: [
-        {
-          playerUrl: embedUrl,
-          streamUrl: audioUrl,
-          width: 480,
-          height: 320,
-        },
-      ],
     },
     robots: { index: false, follow: false },
   };
