@@ -3,6 +3,8 @@ import { Metadata } from "next";
 import { headers } from "next/headers";
 import { getClip } from "@/lib/kv";
 import Player from "@/components/Player";
+import AppleMusicLink from "@/components/AppleMusicLink";
+import TipJarLink from "@/components/TipJarLink";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -54,7 +56,7 @@ export default async function ClipPage({ params }: Props) {
   if (!clip) notFound();
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-black via-indigo-950 to-black flex flex-col items-center justify-center px-4 py-10">
+    <main className="min-h-screen bg-gradient-to-b from-black via-indigo-950 to-black flex flex-col items-center justify-center px-4 py-10 gap-6">
       <Player
         audioBlobUrl={clip.audioBlobUrl}
         startMs={clip.startMs}
@@ -64,6 +66,10 @@ export default async function ClipPage({ params }: Props) {
         artist={clip.artist}
         caption={clip.caption}
       />
+
+      <AppleMusicLink trackTitle={clip.title} artistName={clip.artist} />
+
+      <TipJarLink variant="footer" />
     </main>
   );
 }

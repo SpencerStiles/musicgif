@@ -8,6 +8,7 @@ import CaptionInput from "@/components/CaptionInput";
 import ShareButton from "@/components/ShareButton";
 import { ItunesTrack, artworkUrl } from "@/lib/itunes";
 import { extractTrimmedAudio, safeFilename } from "@/lib/audio-export";
+import TipJarLink from "@/components/TipJarLink";
 
 type Step = "search" | "trim" | "share" | "done";
 
@@ -236,6 +237,10 @@ export default function Home() {
             >
               Make another clip
             </button>
+
+            <div className="pt-4">
+              <TipJarLink variant="primary" />
+            </div>
           </div>
         )}
       </div>
