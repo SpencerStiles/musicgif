@@ -2,15 +2,18 @@ interface TipJarLinkProps {
   variant?: "primary" | "footer";
 }
 
-// Renders a Buy Me a Coffee tip link. Only shows if NEXT_PUBLIC_BMAC_USERNAME
-// is set. Two visual styles:
+// Renders a Ko-fi tip link. Only shows if NEXT_PUBLIC_KOFI_USERNAME is set.
+// Two visual styles:
 //  - "primary": prominent button (used on share-success screen)
 //  - "footer": subtle text link (used on recipient page footer)
+//
+// Ko-fi was chosen over Buy Me a Coffee because Ko-fi takes 0% platform fee
+// on tips on the free tier (BMaC takes 5%).
 export default function TipJarLink({ variant = "primary" }: TipJarLinkProps) {
-  const username = process.env.NEXT_PUBLIC_BMAC_USERNAME;
+  const username = process.env.NEXT_PUBLIC_KOFI_USERNAME;
   if (!username) return null;
 
-  const url = `https://buymeacoffee.com/${username}`;
+  const url = `https://ko-fi.com/${username}`;
 
   if (variant === "footer") {
     return (
